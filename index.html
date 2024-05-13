@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exploring Substance Use in the United States of America</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            color: #333;
+            background-color: #f5f5f5;
+        }
+
+        select,
+        input[type="checkbox"] {
+            font-family: inherit;
+            padding: 5px 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: #fff;
+            color: #333;
+        }
+
+        select:focus,
+        input[type="checkbox"]:focus {
+            outline: none;
+            border-color: #666;
+        }
+
+        .legend {
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+        }
+
+        #chart {
+            background-color: #fff;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        #text-section {
+            background-color: #fff;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .legend {
+            font-size: 14px;
+            font-weight: 400;
+            text-align: center;
+        }
+
+        .legend-item {
+            cursor: pointer;
+        }
+
+        .legend-item rect {
+            stroke: #333;
+            stroke-width: 1px;
+        }
+
+        .tooltip {
+            position: absolute;
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 8px 12px;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            pointer-events: none;
+            font-size: 14px;
+            font-weight: 400;
+            color: #333;
+        }
+        #source {
+            font-style: italic;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Exploring Substance Use in the United States of America</h1>
+    <p>Check at least one substance below to visualize the number of people who have ever tried it. Multiple substances can be visualized at once.</p>
+    <div id="filter-options">
+        <h3>Filter Options</h3>
+    </div>
+    <br>
+    <div id="substance-options">
+    </div>
+    <div id="chart"></div>
+    <div id="text-section">
+        <h3>Design Rationale</h3>
+        <p>Our design rationale.</p>
+        <br>
+        <h3>Development Process</h3>
+        <p>Our development process.</p>
+    </div>
+
+    <script>
+        var x, y, line, svg, data, height, legendSvg, color, tooltip, margin, substanceOptions, selectedSubstanceNames;
+        d3.csv("https://raw.githubusercontent.com/captcpt/DSC106_Project3/main/nsduh_clean.csv").then(function (d) {
+            data = d; // Assign loaded data to global variable
+            // Convert numerical columns to numbers
+            data.forEach(function (d) {
+                d.year = +d.year;
+            });
+
+            // Filter options
+            var filterOptions = {
+                irsex: [...new Set(data.map(d => d.irsex))],
+                catag6: [...new Set(data.map(d => d.catag6))],
+                newrace2: [...new Set(data.map(d => d.newrace2))],
+                sexident: [...new Set(data.map(d => d.sexident))]
+            };
+
+            // Substance options
+            var substanceOptions = ["cigever", "alcever", "mjever", "cocever", "herever", "hallucevr", "lsd", "pcp", "mesc", "psilcy", "ketminesk", "methamevr", "stmanylif", "sedanylif"];
+
+            // Having improved display names
+            var substanceOptions = [
+                { id: "cigever", displayName: "Cigarettes" },
+                { id: "alcever", displayName: "Alcohol" },
+                { id: "mjever", displayName: "Marijuana" },
+                { id: "cocever", displayName: "Cocaine" },
+                { id: "herever", displayName: "Heroin" },
+                { id: "hallucevr", displayName: "Hallucinogens" },
+                { id: "lsd", displayName: "LSD" },
+                { id: "pcp", displayName: "PCP" },
+                { id: "mesc", displayName: "Mescaline" },
+                { id: "psilcy", displayName: "Psilocybin (Mushrooms)" },
+                { id: "ketminesk", displayName: "Ketamine" },
+                { id: "methamevr", displayName: "Methamphetamine" },
+                { id: "stmanylif", displayName: "Prescription Stimulants" },
+                { id: "sedanylif", displayName: "Prescription Sedatives" }
+            ];
+
+            selectedSubstanceNames = [];
+            renderFilterOptions(filterOptions, substanceOptions);
+            renderChart();
+        });
+
+        function getFilterLabel(filter) {
+            switch (filter) {
+                case "irsex":
+                    return "Gender";
+                case "catag6":
+                    return "Age Group";
+                case "newrace2":
+                    return "Race";
+                case "sexident":
+                    return "Sexual Identity";
+                default:
+                    return filter.replace(/([A-Z])/g, ' $1').trim();
+            }
+        }
+
+        function renderFilterOptions(filterOptions, substanceOptions) {
+            var filterDiv = d3.select("#filter-options");
+            var substanceDiv = d3.select("#substance-options");
+
+            Object.keys(filterOptions).forEach(function (filter) {
+                var options = filterOptions[filter];
+                var filterLabel = filterDiv.append("label")
+                    .text(getFilterLabel(filter) + ": ");
+                var select = filterLabel.append("select")
+                    .attr("id", filter)
+                    .on("change", updateChart);
+                select.append("option").text("All");
+                options.forEach(function (option) {
+                    select.append("option").text(option).attr("value", option);
+                });
+            });
+
+            substanceOptions.forEach(function (substance) {
+                var checkbox = substanceDiv.append("label")
+                    .text(substance.displayName)
+                    .append("input")
+                    .attr("type", "checkbox")
+                    .attr("id", substance.id)
+                    .on("change", function () {
+                        updateChart();
+                        updateSelectedSubstances();
+                    });
+
+
+                function updateSelectedSubstances() {
+                    selectedSubstanceNames = []; // Clear the array
+                    substanceOptions.forEach(function (substance) {
+                        var checkbox = d3.select("#" + substance.id.replace(/\s/g, ''));
+                        if (checkbox.property("checked")) {
+                            selectedSubstanceNames.push(substance.displayName);
+                        }
+                    });
+                }
+
+            });
+        }
+
+        function updateChart() {
+            var filters = {};
+            d3.selectAll("select").each(function () {
+                var value = d3.select(this).property("value");
+                if (value !== "All") filters[d3.select(this).attr("id")] = value;
+            });
+
+            var selectedSubstances = [];
+            d3.selectAll("input[type=checkbox]").each(function () {
+                if (d3.select(this).property("checked")) selectedSubstances.push(d3.select(this).attr("id"));
+            });
+
+            var filteredData = data.filter(function (d) {
+                return Object.keys(filters).every(function (key) {
+                    return filters[key] === "All" || d[key] === filters[key];
+                }) && selectedSubstances.some(function (substance) {
+                    return d[substance] === "1";
+                });
+            });
+
+            var sumData = selectedSubstances.map(function (substance) {
+                return {
+                    name: substance,
+                    values: d3.rollup(filteredData, function (v) {
+                        return d3.sum(v, function (d) {
+                            return parseInt(d[substance]);
+                        });
+                    }, function (d) { return d.year; })
+                };
+            });
+
+            x.domain(d3.extent(data, function (d) { return d.year; }));
+            y.domain([0, d3.max(sumData, function (d) { return d3.max(Array.from(d.values.values())); })]);
+
+            svg.selectAll("*").remove();
+
+            var lineTransition = d3.transition()
+                .duration(750)
+                .ease(d3.easeLinear);
+
+            svg.append("g")
+                .attr("class", "x axis")
+                .attr("transform", "translate(0," + height + ")")
+                .call(d3.axisBottom(x));
+
+            svg.append("g")
+                .attr("class", "y axis")
+                .call(d3.axisLeft(y));
+
+            color = d3.scaleOrdinal(d3.schemeCategory10);
+
+            var line = d3.line()
+                .x(function (d) { return x(d[0]); })
+                .y(function (d) { return y(d[1]); });
+
+            sumData.forEach(function (d) {
+                var substanceGroup = svg.append("g").attr("class", "substance-" + d.name);
+
+                svg.append("path")
+                    .datum(Array.from(d.values.entries()))
+                    .attr("class", "line")
+                    .attr("d", line)
+                    .style("stroke", function () { return color(d.name); })
+                    .style("fill", "none")
+                    .transition(lineTransition)
+                    .attrTween("d", function (d) {
+                        var interpolate = d3.scaleQuantile()
+                            .domain([0, 1])
+                            .range(d3.range(1, d.length + 1));
+                        return function (t) {
+                            return line(d.slice(0, interpolate(t)));
+                        };
+                    });
+
+
+                substanceGroup.selectAll(".dot")
+                    .data(Array.from(d.values.entries()))
+                    .enter().append("circle")
+                    .attr("class", "dot")
+                    .attr("cx", function (d) { return x(d[0]); })
+                    .attr("cy", function (d) { return y(d[1]); })
+                    .attr("r", 4)
+                    .style("fill", color(d.name))
+                    .on("mouseover", function (event, d) {
+                        tooltip.transition()
+                            .duration(200)
+                            .style("opacity", .9);
+                        tooltip.html("Number of People Who Have Tried: " +d[1])
+                            .style("left", (event.pageX) + "px")
+                            .style("top", (event.pageY - 28) + "px");
+                    })
+                    .on("mouseout", function (d) {
+                        tooltip.transition()
+                            .duration(500)
+                            .style("opacity", 0);
+                    });
+            });
+
+            renderLegend(sumData);
+        }
+
+
+        function renderChart() {
+            var margin = { top: 20, right: 30, bottom: 30, left: 60 },
+                width = 800 - margin.left - margin.right;
+            height = 400 - margin.top - margin.bottom;
+
+            svg = d3.select("#chart")
+                .append("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+            x = d3.scaleTime().range([0, width]);
+            y = d3.scaleLinear().range([height, 0]);
+
+            data.forEach(function (d) {
+                d.year = new Date(d.year, 0, 1);
+            });
+
+            x.domain([new Date(2015, 0, 1), new Date(2019, 0, 1)]);
+
+            var xAxis = d3.axisBottom(x)
+                .tickFormat(d3.timeFormat("%Y"));
+
+            svg.append("g")
+                .attr("transform", "translate(0," + height + ")")
+                .call(xAxis.ticks(d3.timeYear.every(1)));
+
+            svg.append("g")
+                .call(d3.axisLeft(y));
+
+            tooltip = d3.select("body").append("div")
+                .attr("class", "tooltip")
+                .style("opacity", 0);
+
+            svg.on("mousemove", function (event) {
+                var mouseX = d3.pointer(event)[0];
+                var mouseY = d3.pointer(event)[1];
+                var invertedX = x.invert(mouseX);
+
+            })
+
+            updateChart();
+        }
+
+        function renderLegend(sumData) {
+            if (legendSvg) legendSvg.remove();
+
+            const substanceDisplayNames = {
+                "cigever": "Cigarettes",
+                "alcever": "Alcohol",
+                "mjever": "Marijuana",
+                "cocever": "Cocaine",
+                "herever": "Heroin",
+                "hallucevr": "Hallucinogens",
+                "lsd": "LSD",
+                "pcp": "PCP",
+                "mesc": "Mescaline",
+                "psilcy": "Psilocybin (Mushrooms)",
+                "ketminesk": "Ketamine",
+                "methamevr": "Methamphetamine",
+                "stmanylif": "Prescription Stimulants",
+                "sedanylif": "Prescription Sedatives"
+            };
+
+            var legendWidth = 200;
+            var legendHeight = sumData.length * 20;
+            legendSvg = d3.select("#chart").append("svg")
+                .attr("width", legendWidth)
+                .attr("height", legendHeight)
+                .attr("class", "legend");
+
+            var legend = legendSvg.selectAll(".legend-item")
+                .data(sumData)
+                .enter().append("g")
+                .attr("class", "legend-item")
+                .attr("transform", function (d, i) {
+                    return "translate(0," + (i * 20) + ")";
+                });
+
+            legend.append("rect")
+                .attr("x", 0)
+                .attr("y", 0)
+                .attr("width", 10)
+                .attr("height", 10)
+                .style("fill", function (d) { return color(d.name); });
+
+            legend.append("text")
+                .attr("x", 15)
+                .attr("y", 9)
+                .attr("dy", ".35em")
+                .text(function (d) { return substanceDisplayNames[d.name]; });
+        }
+
+    </script>
+</body>
+<footer>
+    <p id="source">Source: National Survey on Drug Use and Health (NSDUH) for years 2015-2019.</p>
+</footer>
+</html>
